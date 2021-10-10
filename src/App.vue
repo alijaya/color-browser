@@ -13,7 +13,10 @@
       Login
     </button>
     <template v-if="isSignedIn">
+      <button @click="pickFile()">Pick File</button>
       <button @click="fetchFiles()">Fetch Files</button>
+      <img v-if="embedUrl" :src="embedUrl" />
+      <div v-if="text != null">{{ text }}</div>
       <ul>
         <li v-for="file in files" :key="file.id">
           <a :href="file.webViewLink" target="_blank">
@@ -51,6 +54,8 @@ export default {
       isSignedIn: null,
       files: [],
       childFiles: {},
+      embedUrl: null,
+      text: null,
     };
   },
   created() {
@@ -85,6 +90,42 @@ export default {
           "nextPageToken, files(id, name, iconLink, thumbnailLink, webViewLink, webContentLink, mimeType, parents)",
       });
       this.childFiles[folderId] = response.result.files;
+    },
+
+    async pickFile() {
+      const gpicker = await this.$gpicker();
+      const gpickerbuilder = await this.$gpickerbuilder();
+      const view = new gpicker.DocsView();
+      view.setMimeTypes("text/plain");
+      const picker = gpickerbuilder
+        .addView(gpicker.ViewId.DOCS_IMAGES)
+        .setCallback(this.onPick)
+        .build();
+
+      picker.setVisible(true);
+    },
+
+    async onPick(response) {
+      const gdrive = await this.$gdrive();
+      const gpicker = await this.$gpicker();
+      if (response[gpicker.Response.ACTION] === gpicker.Action.PICKED) {
+        const docs = response[gpicker.Response.DOCUMENTS];
+        const id = docs[0].id;
+        const resMeta = await gdrive.files.get({
+          fileId: id,
+          fields: "mimeType",
+        });
+        const resMedia = await gdrive.files.get({
+          fileId: id,
+          // fields: "webContentLink",
+          alt: "media",
+        });
+
+        let blob = new Blob([this.$str2ab(resMedia.body)], {
+          type: resMeta.result.mimeType,
+        });
+        this.embedUrl = URL.createObjectURL(blob);
+      }
     },
   },
   computed: {
