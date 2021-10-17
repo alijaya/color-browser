@@ -3,6 +3,7 @@ import App from "./App.vue";
 import VueGapi from "vue-gapi";
 import axios from "axios";
 import VueAxios from "vue-axios";
+import MultiPartBuilder from "./scripts/MultiPartBuilder";
 
 const app = createApp(App);
 
@@ -42,12 +43,91 @@ app.config.globalProperties.$gpicker = async function() {
 
 app.config.globalProperties.$gpickerbuilder = async function() {
   const gpicker = await app.config.globalProperties.$gpicker();
-  const userData = app.config.globalProperties.$gapi.getUserData();
-  const oauthToken = userData?.accessToken;
+  const gapi = await app.config.globalProperties.$gapi.getGapiClient();
+  const oauthToken = gapi.auth.getToken().access_token;
   const builder = new gpicker.PickerBuilder();
   return builder
     .setAppId(process.env.VUE_APP_G_APP_ID)
     .setDeveloperKey(process.env.VUE_APP_G_API_KEY)
     .setOAuthToken(oauthToken);
 };
+
+app.config.globalProperties.$gdriveLoad = async function(fileId) {
+  const gdrive = await app.config.globalProperties.$gdrive();
+  const resMeta = await gdrive.files.get({
+    fileId: fileId,
+  });
+  const resMedia = await gdrive.files.get({
+    fileId: fileId,
+    alt: "media",
+  });
+  const blob = new Blob([app.config.globalProperties.$str2ab(resMedia.body)], {
+    type: resMeta.result.mimeType,
+  });
+  return {
+    metadata: resMeta.result,
+    content: blob,
+  }
+};
+
+/**
+ * Have several cases:
+ * - id:
+ *   - exists: update
+ *   - null: create
+ * - metadata:
+ *   - exists: update / create metadata
+ *   - null: don't update / create metadata
+ * - content:
+ *   - exists: update / create content
+ *   - null: don't update / create content
+ */
+app.config.globalProperties.$gdriveSave = async function(id, metadata, content) {
+  const gapi = await app.config.globalProperties.$gapi.getGapiClient();
+  
+  // if metadata & content exists, use long way to create / update stuff
+  if (metadata != null && content != null) {
+    let path;
+    let method;
+
+    if (id) {
+      path = '/upload/drive/v3/files/' + encodeURIComponent(id);
+      method = 'PATCH';
+    } else {
+      path = '/upload/drive/v3/files';
+      method = 'POST';
+    }
+
+    const multipart = new MultiPartBuilder()
+      .append('application/json; charset=UTF-8', JSON.stringify(metadata))
+      .append(metadata.mimeType, content)
+      .finish();
+
+    const response = await gapi.client.request({
+      path: path,
+      method: method,
+      params: {
+        uploadType: 'multipart',
+      },
+      headers: { 'Content-Type' : multipart.type },
+      body: multipart.body
+    })
+    return response.result;
+  } else if (metadata != null) {
+    if (id) {
+      return gapi.drive.files.update({
+        fileId: id,
+        resource: metadata,
+      })
+    } else {
+      return gapi.drive.files.create({
+        resource: metadata,
+      })
+    }
+
+  } else if (content != null) {
+    // not implemented yet
+  }
+};
+
 app.mount("#app");

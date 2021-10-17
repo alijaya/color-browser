@@ -15,6 +15,12 @@
     <template v-if="isSignedIn">
       <button @click="pickFile()">Pick File</button>
       <button @click="fetchFiles()">Fetch Files</button>
+      <br />
+      <p>{{currentFileId}}</p>
+      <input v-model="name" />
+      <input v-model="rgb" />
+      <button @click="saveFile()">Save File</button>
+      <div style="width:500px; height:500px" :style="{'background-color': rgb}"></div>
       <img v-if="embedUrl" :src="embedUrl" />
       <div v-if="text != null">{{ text }}</div>
       <ul>
@@ -56,6 +62,9 @@ export default {
       childFiles: {},
       embedUrl: null,
       text: null,
+      currentFileId: null,
+      name: "test.json",
+      rgb: "#000000",
     };
   },
   created() {
@@ -98,7 +107,7 @@ export default {
       const view = new gpicker.DocsView();
       view.setMimeTypes("text/plain");
       const picker = gpickerbuilder
-        .addView(gpicker.ViewId.DOCS_IMAGES)
+        .addView(view)
         .setCallback(this.onPick)
         .build();
 
@@ -106,27 +115,24 @@ export default {
     },
 
     async onPick(response) {
-      const gdrive = await this.$gdrive();
       const gpicker = await this.$gpicker();
       if (response[gpicker.Response.ACTION] === gpicker.Action.PICKED) {
         const docs = response[gpicker.Response.DOCUMENTS];
         const id = docs[0].id;
-        const resMeta = await gdrive.files.get({
-          fileId: id,
-          fields: "mimeType",
-        });
-        const resMedia = await gdrive.files.get({
-          fileId: id,
-          // fields: "webContentLink",
-          alt: "media",
-        });
-
-        let blob = new Blob([this.$str2ab(resMedia.body)], {
-          type: resMeta.result.mimeType,
-        });
-        this.embedUrl = URL.createObjectURL(blob);
+        const file = await this.$gdriveLoad(id);
+        this.currentFileId = file.metadata.id;
+        this.name = file.metadata.name;
+        this.rgb = await file.content.text();
       }
     },
+
+    async saveFile() {
+      const response = await this.$gdriveSave(this.currentFileId, {
+        name: this.name,
+        mimeType: 'text/plain',
+      }, this.rgb);
+      console.log(response);
+    }
   },
   computed: {
     userName() {
@@ -138,7 +144,7 @@ export default {
       return null;
     },
   },
-};
+}
 </script>
 
 <style>
